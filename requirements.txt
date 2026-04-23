@@ -1,0 +1,4 @@
+pytesseract
+Pillow
+python-magic-bin
+python-dateutil
