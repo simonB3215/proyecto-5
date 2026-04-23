@@ -1,6 +1,7 @@
 import os
 import uuid
-import magic  # python-magic
+import magic
+from db.supabase_client import get_client
 
 # Extensiones permitidas (MVP)
 ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.pdf'}
@@ -15,14 +16,12 @@ ALLOWED_MIMES = {
 # Límite de tamaño: 5MB
 MAX_FILE_SIZE = 5 * 1024 * 1024
 
-def validate_and_save_file(uploaded_file_path, dest_folder="uploads"):
+BUCKET_NAME = "documentos_garantia"
+
+def validate_and_save_file(uploaded_file_path):
     """
-    Valida un archivo subido por:
-    1. Tamaño.
-    2. Extensión.
-    3. Tipo MIME real usando libmagic.
-    
-    Si es válido, lo mueve a la carpeta destino renombrándolo con un UUID seguro.
+    Valida un archivo subido y lo sube al Storage de Supabase.
+    Retorna la URL pública del archivo y su tipo MIME.
     """
     # 1. Verificar tamaño
     file_size = os.path.getsize(uploaded_file_path)
@@ -41,18 +40,21 @@ def validate_and_save_file(uploaded_file_path, dest_folder="uploads"):
     if file_mime not in ALLOWED_MIMES:
         raise ValueError(f"Tipo MIME no permitido: {file_mime}")
 
-    # Crear carpeta destino si no existe
-    if not os.path.exists(dest_folder):
-        os.makedirs(dest_folder)
-
     # 4. Generar nombre seguro (UUID)
     safe_filename = f"{uuid.uuid4()}{ext}"
-    final_path = os.path.join(dest_folder, safe_filename)
 
-    # En un entorno real (ej. Flask), aquí guardaríamos el FileStorage.
-    # Para el MVP, simplemente renombramos/movemos el archivo temporal
-    # asumiendo que 'uploaded_file_path' es la ruta temporal donde se subió.
-    
-    # os.rename(uploaded_file_path, final_path) # Comentado para MVP de consola
-    
-    return final_path, file_mime
+    # 5. Subir a Supabase Storage
+    supabase = get_client()
+    try:
+        with open(uploaded_file_path, 'rb') as f:
+            supabase.storage.from_(BUCKET_NAME).upload(
+                path=safe_filename,
+                file=f,
+                file_options={"content-type": file_mime}
+            )
+        
+        # Obtener la URL pública
+        public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(safe_filename)
+        return public_url, file_mime, uploaded_file_path
+    except Exception as e:
+        raise RuntimeError(f"Error subiendo a Supabase Storage: {e}")
