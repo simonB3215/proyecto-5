@@ -1,33 +1,29 @@
-from db.database import get_connection
+import requests
+from db.supabase_client import get_base_url, get_headers
 from datetime import datetime
-import json
+from dateutil.relativedelta import relativedelta
 
 def get_expiring_warranties(days=30):
     """
-    Busca en la base de datos los productos cuyas garantías
+    Busca en Supabase (REST) los productos cuyas garantías
     vencen en los próximos 'days' días.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
+    url = get_base_url()
+    headers = get_headers()
     
-    # Consultar productos que vencen entre hoy y hoy + days
-    query = f'''
-        SELECT p.id, p.nombre_comercial, p.fecha_vencimiento, u.email as usuario_email, u.nombre as usuario_nombre
-        FROM productos p
-        JOIN usuarios u ON p.usuario_id = u.id
-        WHERE p.fecha_vencimiento BETWEEN DATE('now') AND DATE('now', '+{days} days')
-        ORDER BY p.fecha_vencimiento ASC
-    '''
+    hoy = datetime.now().strftime('%Y-%m-%d')
+    fecha_limite = (datetime.now() + relativedelta(days=days)).strftime('%Y-%m-%d')
     
-    cursor.execute(query)
-    rows = cursor.fetchall()
-    conn.close()
-    
-    expiring_products = []
-    for row in rows:
-        expiring_products.append(dict(row))
+    # Consultar productos. Usamos PostgREST select para hacer join con usuarios
+    try:
+        query_url = f"{url}/rest/v1/productos?select=id,nombre_comercial,fecha_vencimiento,usuarios(email,nombre)&fecha_vencimiento=gte.{hoy}&fecha_vencimiento=lte.{fecha_limite}"
+        response = requests.get(query_url, headers=headers)
+        response.raise_for_status()
         
-    return expiring_products
+        return response.json()
+    except Exception as e:
+        print(f"Error consultando Supabase: {e}")
+        return []
 
 def run_alert_check():
     """
@@ -41,8 +37,9 @@ def run_alert_check():
         return []
         
     for product in expiring:
+        usuario_nombre = product.get('usuarios', {}).get('nombre', 'Desconocido')
         print(f"[ALERTA] El producto '{product['nombre_comercial']}' "
-              f"del usuario {product['usuario_nombre']} "
+              f"del usuario {usuario_nombre} "
               f"vencerá el {product['fecha_vencimiento']}.")
               
     return expiring
