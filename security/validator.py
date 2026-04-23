@@ -54,6 +54,8 @@ def validate_and_save_file(uploaded_file_path):
         with open(uploaded_file_path, 'rb') as f:
             upload_url = f"{url}/storage/v1/object/{BUCKET_NAME}/{safe_filename}"
             response = requests.post(upload_url, headers=headers, data=f)
+            if response.status_code != 200:
+                print(f"Detalle del error de Supabase: {response.text}")
             response.raise_for_status()
         
         # Obtener la URL pública
