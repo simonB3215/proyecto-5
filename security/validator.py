@@ -1,16 +1,18 @@
 import os
 import uuid
 import magic
-from db.supabase_client import get_client
+import requests
+from db.supabase_client import get_base_url, get_headers
 
 # Extensiones permitidas (MVP)
-ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.pdf'}
+ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.pdf', '.webp'}
 
 # Tipos MIME permitidos
 ALLOWED_MIMES = {
     'image/jpeg',
     'image/png',
-    'application/pdf'
+    'application/pdf',
+    'image/webp'
 }
 
 # Límite de tamaño: 5MB
@@ -20,7 +22,7 @@ BUCKET_NAME = "documentos_garantia"
 
 def validate_and_save_file(uploaded_file_path):
     """
-    Valida un archivo subido y lo sube al Storage de Supabase.
+    Valida un archivo subido y lo sube al Storage de Supabase usando REST.
     Retorna la URL pública del archivo y su tipo MIME.
     """
     # 1. Verificar tamaño
@@ -34,27 +36,28 @@ def validate_and_save_file(uploaded_file_path):
     if ext not in ALLOWED_EXTENSIONS:
         raise ValueError(f"Extensión no permitida: {ext}")
 
-    # 3. Verificar MIME type real (protección contra renombramiento de extensiones)
+    # 3. Verificar MIME type real
     mime = magic.Magic(mime=True)
     file_mime = mime.from_file(uploaded_file_path)
     if file_mime not in ALLOWED_MIMES:
         raise ValueError(f"Tipo MIME no permitido: {file_mime}")
 
-    # 4. Generar nombre seguro (UUID)
+    # 4. Generar nombre seguro
     safe_filename = f"{uuid.uuid4()}{ext}"
 
-    # 5. Subir a Supabase Storage
-    supabase = get_client()
+    # 5. Subir a Supabase Storage (REST)
+    url = get_base_url()
+    headers = get_headers().copy()
+    headers["Content-Type"] = file_mime
+    
     try:
         with open(uploaded_file_path, 'rb') as f:
-            supabase.storage.from_(BUCKET_NAME).upload(
-                path=safe_filename,
-                file=f,
-                file_options={"content-type": file_mime}
-            )
+            upload_url = f"{url}/storage/v1/object/{BUCKET_NAME}/{safe_filename}"
+            response = requests.post(upload_url, headers=headers, data=f)
+            response.raise_for_status()
         
         # Obtener la URL pública
-        public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(safe_filename)
+        public_url = f"{url}/storage/v1/object/public/{BUCKET_NAME}/{safe_filename}"
         return public_url, file_mime, uploaded_file_path
     except Exception as e:
         raise RuntimeError(f"Error subiendo a Supabase Storage: {e}")
